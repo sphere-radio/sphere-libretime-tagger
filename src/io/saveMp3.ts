@@ -1,15 +1,16 @@
-import type { Mp3Source } from "./mp3Source";
+import { isMp3, type AudioSource } from "./audioSource";
 
 export type SaveOutcome = "replaced-original" | "downloaded-copy";
 
 const OBJECT_URL_LIFETIME_MS = 10_000;
 
-export function canReplaceOriginal(source: Mp3Source): boolean {
-  return source.handle !== null && typeof source.handle.move === "function";
+// A converted file must never overwrite its source: the bytes would be MP3 under another format's name.
+export function canReplaceOriginal(source: AudioSource): boolean {
+  return isMp3(source.file) && source.handle !== null && typeof source.handle.move === "function";
 }
 
-export async function saveTaggedMp3(source: Mp3Source, newName: string, bytes: Uint8Array): Promise<SaveOutcome> {
-  if (source.handle && (await renameOriginal(source.handle, newName))) {
+export async function saveTaggedMp3(source: AudioSource, newName: string, bytes: Uint8Array): Promise<SaveOutcome> {
+  if (source.handle && canReplaceOriginal(source) && (await renameOriginal(source.handle, newName))) {
     await overwrite(source.handle, bytes);
     return "replaced-original";
   }

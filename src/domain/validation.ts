@@ -46,7 +46,7 @@ export function isRealIsoDate(value: string): boolean {
 
 function collectErrors(raw: RawForm): FieldErrors {
   const errors: FieldErrors = {};
-  if (!raw.hasFile) errors.file = "Choose an MP3 file.";
+  if (!raw.hasFile) errors.file = "Choose an audio file.";
   if (!raw.hasCover) errors.cover = "Add a cover image.";
   if (raw.show === "") errors.show = "Choose a show.";
   const episode = raw.episode.trim();

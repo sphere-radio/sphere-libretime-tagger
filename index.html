@@ -8,7 +8,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎙%3C/text%3E%3C/svg%3E">
 </head>
 <body>
-  <header class="masthead">
+  <header class="masthead" id="masthead">
     <div class="masthead-inner">
       <div class="brand">
         <span class="logo" aria-hidden="true"></span>
@@ -19,21 +19,44 @@
         <output id="readout" class="readout-text" for="show episode episodeTitle contributorInput date"></output>
       </p>
     </div>
+    <div id="audioProgress" class="masthead-progress" role="progressbar" aria-label="Audio processing progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden></div>
   </header>
 
   <main class="layout">
     <form id="tagForm" novalidate class="form">
       <div class="column">
+        <div class="field">
+          <div class="label-row">
+            <label class="check"><input type="checkbox" id="normalize"> Normalize loudness</label>
+            <button type="button" class="tip" aria-label="Help: Normalize loudness" aria-describedby="tip-normalize">?</button>
+            <span id="tip-normalize" role="tooltip" class="tip-text">Evens out the volume to a standard loudness (EBU R128). The audio is re-encoded. Changing this restarts the processing of the chosen file.</span>
+          </div>
+          <select id="loudnessTarget" aria-label="Loudness target" disabled></select>
+          <div class="label-row">
+            <label class="check"><input type="checkbox" id="trimSilence"> Trim silence at start and end</label>
+            <button type="button" class="tip" aria-label="Help: Trim silence" aria-describedby="tip-trim">?</button>
+            <span id="tip-trim" role="tooltip" class="tip-text">Cuts silence from the very start and the very end of the recording. Pauses inside the recording stay. The audio is re-encoded. The review dialog says how much was cut.</span>
+          </div>
+        </div>
+
         <section class="field" aria-labelledby="label-file">
           <div class="label-row">
-            <span id="label-file" class="label">MP3 file</span><span class="req">required</span>
-            <button type="button" class="tip" aria-label="Help: MP3 file" aria-describedby="tip-file">?</button>
-            <span id="tip-file" role="tooltip" class="tip-text">The recording you want to tag. Drop it here or choose it from your computer. Only .mp3 files work.</span>
+            <span id="label-file" class="label">Audio files</span><span class="req">required</span>
+            <button type="button" class="tip" aria-label="Help: Audio files" aria-describedby="tip-file">?</button>
+            <span id="tip-file" role="tooltip" class="tip-text">The recordings you want to tag. Drop them here or choose them from your computer. With several files, you tag them one after the other, and the next one is prepared while you work. MP3 files are tagged as they are. WAV, FLAC, AIFF, M4A, AAC, OGG and Opus files are converted to a 320 kbps MP3 first.</span>
           </div>
           <button type="button" id="fileDrop" class="drop" aria-describedby="error-file">
-            <span id="fileDropText">Drop an MP3 here, or choose a file</span>
+            <span id="fileDropText">Drop audio files here, or choose files</span>
           </button>
-          <input type="file" id="fileInput" accept=".mp3,audio/mpeg" hidden>
+          <ol id="queueList" class="queue" aria-label="Files to tag" hidden></ol>
+          <input type="file" id="fileInput" accept="audio/*,.mp3,.wav,.flac,.aiff,.aif,.m4a,.aac,.ogg,.oga,.opus" multiple hidden>
+          <div class="audio-status">
+            <p id="audioStatus" class="hint" role="status"></p>
+            <button type="button" id="audioCancel" class="btn quiet" hidden>Cancel</button>
+          </div>
+          <p id="audioInfo" class="hint"></p>
+          <p id="audioResult" class="hint"></p>
+          <audio id="audioPreview" class="audio-preview" controls preload="metadata" aria-label="Preview of the audio that will be saved" hidden></audio>
           <p id="error-file" class="error" role="alert"></p>
         </section>
 
@@ -101,7 +124,7 @@
           <div class="label-row">
             <span id="label-cover" class="label">Episode cover</span><span class="req">required</span>
             <button type="button" class="tip" aria-label="Help: Episode cover" aria-describedby="tip-cover">?</button>
-            <span id="tip-cover" role="tooltip" class="tip-text">A PNG, JPG or WebP image. It is cut to a square and saved as a JPEG up to 1400 × 1400 pixels. Drag the frame to choose the cut, or use the arrow keys. Shows with a primary cover fill it in for you.</span>
+            <span id="tip-cover" role="tooltip" class="tip-text">A PNG, JPG or WebP image. Drop it, choose it, paste it with Ctrl+V or load it from a link. It is cut to a square and saved as a JPEG up to 1400 × 1400 pixels. Drag the frame to choose the cut, or use the arrow keys. Shows with a primary cover fill it in for you.</span>
           </div>
           <div class="stage">
             <button type="button" id="coverDrop" class="drop square" aria-describedby="error-cover">
@@ -126,12 +149,20 @@
             </div>
             <label id="primaryCoverRow" class="check" hidden><input type="checkbox" id="primaryCover"> Use as the primary cover for this show</label>
           </div>
+          <div class="field">
+            <label for="coverUrl">Or load from a link</label>
+            <div class="inline">
+              <input type="url" id="coverUrl" inputmode="url" autocomplete="off" placeholder="https://…">
+              <button type="button" id="coverUrlLoad" class="btn">Load</button>
+            </div>
+            <p class="hint">Or copy an image and press Ctrl+V.</p>
+          </div>
           <p id="error-cover" class="error" role="alert"></p>
         </section>
       </div>
 
       <div class="actions">
-        <button type="submit" class="btn primary">Review and save</button>
+        <button type="submit" id="reviewButton" class="btn primary">Review and save</button>
         <button type="reset" id="clearAll" class="btn quiet">Clear</button>
       </div>
     </form>
@@ -177,15 +208,15 @@
     <div class="dialog-body">
       <h2 id="welcomeTitle">Welcome to the Sphere Radio LibreTime Tagger</h2>
       <h3>What it is</h3>
-      <p>A small tool that prepares MP3 files for the Sphere Radio LibreTime library. You fill in a short form and it writes the tags, the cover image and the filename for you.</p>
+      <p>A small tool that prepares audio files for the Sphere Radio LibreTime library. You fill in a short form and it writes the tags, the cover image and the filename for you.</p>
       <h3>How it works</h3>
       <ol class="steps">
-        <li>Choose or drop an MP3 file.</li>
+        <li>Choose or drop one or more audio files. With several files, you tag them one after the other. MP3 is tagged as it is, other formats are converted to MP3. Tick <b>Normalize loudness</b> or <b>Trim silence</b> if you want them. You can change both at any time.</li>
         <li>Pick your show, then add the episode, contributors, and broadcast date.</li>
         <li>Add a cover image and choose the square cut.</li>
         <li>Check the summary and save.</li>
       </ol>
-      <p class=""hint">If you are usually tagging the same show, you can associate it with a <b>primary cover</b> and <b>primary contributor</b>. This will automatically load both once you select the show from the list.</p>
+      <p class="hint">If you are usually tagging the same show, you can associate it with a <b>primary cover</b> and <b>primary contributor</b>. This will automatically load both once you select the show from the list.</p>
       <h3>Why it exists</h3>
       <p>When every file is named and tagged differently, the LibreTime library gets messy. This tagger asks only for what LibreTime needs and removes everything else, so every file looks the same.</p>
       <p class="hint">Everything runs in your browser. Your audio files are never uploaded. Your show lists and primary contributors and covers are only saved in your browser's local storage.</p>

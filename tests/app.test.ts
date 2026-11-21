@@ -100,4 +100,34 @@ describe("app wiring", () => {
       expect(tooltip?.getAttribute("role")).toBe("tooltip");
     }
   });
+
+  it("lists the chosen files, offers to add more and empties the list with Clear", async () => {
+    await openApp();
+    const input = element<HTMLInputElement>("fileInput");
+    const files = ["a.mp3", "b.mp3"].map((name) => new File([new Uint8Array([1])], name));
+    Object.defineProperty(input, "files", { value: files, configurable: true });
+    input.dispatchEvent(new Event("change"));
+    expect([...document.querySelectorAll("#queueList .queue-name")].map((name) => name.textContent)).toEqual(["a.mp3", "b.mp3"]);
+    expect(element("fileDropText").textContent).toMatch(/more/);
+    expect(element<HTMLButtonElement>("reviewButton").disabled).toBe(false);
+
+    element<HTMLFormElement>("tagForm").dispatchEvent(new Event("reset", { cancelable: true }));
+    expect(document.querySelectorAll("#queueList .queue-item")).toHaveLength(0);
+    expect(element("fileDropText").textContent).not.toMatch(/more/);
+  });
+
+  it("does not submit the form when Enter is pressed in the artwork link field", async () => {
+    await openApp();
+    const pressed = new KeyboardEvent("keydown", { key: "Enter", cancelable: true, bubbles: true });
+    element("coverUrl").dispatchEvent(pressed);
+    expect(pressed.defaultPrevented).toBe(true);
+  });
+
+  it("shows an artwork link error for text that is not a link", async () => {
+    await openApp();
+    type("coverUrl", "not a link");
+    element("coverUrlLoad").click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(element("error-cover").textContent).toMatch(/https/);
+  });
 });
