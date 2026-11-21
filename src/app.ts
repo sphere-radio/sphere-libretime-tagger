@@ -1,21 +1,19 @@
 import { loadTagLib } from "./audio/tagLibLoader";
 import { writeTags } from "./audio/tagWriter";
 import { buildFilename, isEpisodeTitleShortenedInFilename } from "./domain/naming";
-import { buildReviewNotes } from "./domain/reviewNotes";
 import { buildTags } from "./domain/tags";
 import type { EpisodeDraft } from "./domain/types";
 import { validateForm, type FieldErrors, type FieldName, type RawForm } from "./domain/validation";
-import { readBytes, type AudioSource } from "./io/audioSource";
+import { readBytes, type Mp3Source } from "./io/mp3Source";
 import { canReplaceOriginal, saveTaggedMp3, type SaveOutcome } from "./io/saveMp3";
 import { ShowCatalog } from "./shows/catalog";
 import { IndexedDbRepository } from "./shows/indexedDbRepository";
 import { suggestedEpisode } from "./shows/profile";
 import { MemoryRepository, type ProfileRepository } from "./shows/repository";
-import { AudioPicker } from "./ui/audioPicker";
-import { AudioPreparation, type PreparedAudio } from "./ui/audioPreparation";
 import { ContributorsInput } from "./ui/contributors";
 import { CoverEditor } from "./ui/coverEditor";
 import { byId, h, onEscapeBlurTooltip } from "./ui/dom";
+import { Mp3Picker } from "./ui/mp3Picker";
 import { ReviewDialog } from "./ui/reviewDialog";
 import { ShowsDialog, type ShowsChange } from "./ui/showsDialog";
 
@@ -43,7 +41,6 @@ async function openCatalog(): Promise<{ catalog: ShowCatalog; storageNotice: str
 
 class TaggerApp {
   private readonly form = byId<HTMLFormElement>("tagForm");
-  private readonly reviewButton = byId<HTMLButtonElement>("reviewButton");
   private readonly show = byId<HTMLSelectElement>("show");
   private readonly episode = byId<HTMLInputElement>("episode");
   private readonly episodeHint = byId("hint-episode");
@@ -53,8 +50,7 @@ class TaggerApp {
   private readonly primaryCoverRow = byId("primaryCoverRow");
   private readonly readout = byId<HTMLOutputElement>("readout");
 
-  private readonly picker = new AudioPicker((sources) => this.audio.add(sources));
-  private readonly audio = new AudioPreparation(() => this.onAudioChanged());
+  private readonly picker = new Mp3Picker(() => this.updateReadout());
   private readonly contributors = new ContributorsInput(() => this.updateReadout());
   private readonly cover = new CoverEditor(() => this.onCoverChanged());
   private readonly reviewDialog = new ReviewDialog();
@@ -87,11 +83,6 @@ class TaggerApp {
   private onFieldEdited(control: HTMLElement): void {
     this.clearError(control);
     this.updateReadout();
-  }
-
-  private onAudioChanged(): void {
-    this.reviewButton.disabled = this.audio.isProcessing();
-    this.picker.showsMoreFiles(this.audio.hasFiles);
   }
 
   private renderShowOptions(selected: string): void {
@@ -142,7 +133,7 @@ class TaggerApp {
 
   private readForm(contributors: string[]): RawForm {
     return {
-      hasFile: this.audio.currentSource !== null,
+      hasFile: this.picker.source !== null,
       hasCover: this.cover.hasCover(),
       show: this.show.value,
       episode: this.episode.value,
@@ -162,28 +153,19 @@ class TaggerApp {
     const result = validateForm(this.readForm(this.contributors.values()));
     if (!result.ok) return this.showErrors(result.errors);
 
-    const source = this.audio.currentSource;
-    const audio = this.audio.prepared;
-    if (source && !audio) return this.showErrors({ file: this.audio.notReadyMessage() });
+    const source = this.picker.source;
     const cover = await this.prepareCover();
-    if (!source || !audio || !cover) return;
+    if (!source || !cover) return;
 
     this.reviewDialog.open(
       {
         originalName: source.file.name,
         newName: buildFilename(result.draft),
         tags: buildTags(result.draft),
-        notes: buildReviewNotes({
-          converted: audio.converted,
-          reencoded: audio.blob !== null,
-          loudness: audio.loudness,
-          trim: audio.trim,
-          replacesOriginal: canReplaceOriginal(source),
-          nameWasShortened: isEpisodeTitleShortenedInFilename(result.draft),
-        }),
-        nextLabel: nextLabel(this.audio.untaggedCount - 1),
+        nameWasShortened: isEpisodeTitleShortenedInFilename(result.draft),
+        replacesOriginal: canReplaceOriginal(source),
       },
-      () => this.save(source, result.draft, cover, audio),
+      () => this.save(source, result.draft, cover),
       () => this.resetForNextFile(),
     );
   }
@@ -197,12 +179,10 @@ class TaggerApp {
     }
   }
 
-  private async save(source: AudioSource, draft: EpisodeDraft, cover: Blob, audio: PreparedAudio): Promise<SaveOutcome> {
+  private async save(source: Mp3Source, draft: EpisodeDraft, cover: Blob): Promise<SaveOutcome> {
     const coverBytes = new Uint8Array(await cover.arrayBuffer());
-    const mp3 = audio.blob ? new Uint8Array(await audio.blob.arrayBuffer()) : await readBytes(source);
-    const tagged = await writeTags(await loadTagLib(), mp3, buildTags(draft), coverBytes);
+    const tagged = await writeTags(await loadTagLib(), await readBytes(source), buildTags(draft), coverBytes);
     const outcome = await saveTaggedMp3(source, buildFilename(draft), tagged);
-    this.audio.markTagged();
     await this.rememberShow(draft, cover);
     return outcome;
   }
@@ -223,17 +203,16 @@ class TaggerApp {
   }
 
   private resetForNextFile(): void {
-    this.audio.advance();
+    this.picker.clear();
     this.episodeTitle.value = "";
     this.date.value = "";
     this.clearAllErrors();
     this.applyShowDefaults();
-    if (this.audio.currentSource) this.show.focus();
-    else this.picker.focus();
+    this.picker.focus();
   }
 
   private clearAll(): void {
-    this.audio.clear();
+    this.picker.clear();
     this.episodeTitle.value = "";
     this.date.value = "";
     this.renderShowOptions("");
@@ -265,10 +244,6 @@ class TaggerApp {
   private clearAllErrors(): void {
     for (const control of Object.values(this.errorFields())) this.clearError(control);
   }
-}
-
-function nextLabel(filesLeft: number): string {
-  return filesLeft > 0 ? `Tag next file (${filesLeft} left)` : "Tag another file";
 }
 
 function order(name: FieldName): number {

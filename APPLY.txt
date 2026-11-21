@@ -1,5 +1,0 @@
-Delete these two files from the repo (replaced by audioSource.ts and audioPicker.ts):
-  src/io/mp3Source.ts
-  src/ui/mp3Picker.ts
-
-Then run: npm install && npm test && npm run build

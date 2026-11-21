@@ -8,11 +8,10 @@ import {
   zoomCrop,
   type CropState,
 } from "../cover/cropMath";
-import { CoverUrlError, fetchCoverImage, firstUriFromDrop, parseImageUrl } from "../cover/coverUrl";
-import { isAcceptedImage } from "../cover/imageTypes";
 import { renderCover } from "../cover/renderCover";
 import { byId } from "./dom";
 
+const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const KEYBOARD_PAN_FRACTION = 0.05;
 const KEYBOARD_ZOOM_STEP = 0.1;
 const SHADE = "rgba(8, 14, 26, 0.62)";
@@ -34,14 +33,10 @@ export class CoverEditor {
   private readonly status = byId<HTMLElement>("coverStatus");
   private readonly error = byId<HTMLElement>("error-cover");
   private readonly input = byId<HTMLInputElement>("coverInput");
-  private readonly urlInput = byId<HTMLInputElement>("coverUrl");
-  private readonly urlLoad = byId<HTMLButtonElement>("coverUrlLoad");
   private dragFrom: { x: number; y: number } | null = null;
 
   constructor(private readonly onChange: () => void) {
     this.wireFileChoosing();
-    this.wireUrlLoading();
-    this.wirePaste();
     this.wireDragging();
     this.wireKeyboard();
     this.zoom.addEventListener("input", () => this.setZoom(Number(this.zoom.value)));
@@ -56,32 +51,17 @@ export class CoverEditor {
     return this.source.kind === "image";
   }
 
-  async loadFile(file: File): Promise<boolean> {
+  async loadFile(file: File): Promise<void> {
     this.error.textContent = "";
-    if (!isAcceptedImage(file)) {
+    if (!ACCEPTED_TYPES.includes(file.type)) {
       this.error.textContent = "Use a PNG, JPG or WebP image.";
-      return false;
+      return;
     }
     try {
       const bitmap = await createImageBitmap(file);
       this.replaceSource({ kind: "image", bitmap, crop: initialCrop(bitmap) });
-      return true;
     } catch {
       this.error.textContent = "This image could not be read. Try another file.";
-      return false;
-    }
-  }
-
-  async loadUrl(text: string): Promise<void> {
-    this.error.textContent = "";
-    this.setUrlBusy(true);
-    try {
-      const loaded = await this.loadFile(await fetchCoverImage(parseImageUrl(text)));
-      if (loaded) this.urlInput.value = "";
-    } catch (failure) {
-      this.error.textContent = failure instanceof CoverUrlError ? failure.message : "The image could not be loaded.";
-    } finally {
-      this.setUrlBusy(false);
     }
   }
 
@@ -102,11 +82,6 @@ export class CoverEditor {
       case "image":
         return renderCover(this.source.bitmap, cropSquare(this.source.bitmap, this.source.crop));
     }
-  }
-
-  private setUrlBusy(busy: boolean): void {
-    this.urlLoad.disabled = busy;
-    this.urlLoad.textContent = busy ? "Loading…" : "Load";
   }
 
   private replaceSource(source: CoverSource): void {
@@ -202,39 +177,10 @@ export class CoverEditor {
       target.addEventListener("dragover", (event) => event.preventDefault());
       target.addEventListener("drop", (event) => {
         event.preventDefault();
-        void this.loadDropped(event.dataTransfer);
+        const file = event.dataTransfer?.files[0];
+        if (file) void this.loadFile(file);
       });
     }
-  }
-
-  // Dragging an image out of another browser tab usually delivers a link, not a file.
-  private async loadDropped(transfer: DataTransfer | null): Promise<void> {
-    const file = transfer?.files[0];
-    if (file) {
-      await this.loadFile(file);
-      return;
-    }
-    const link = firstUriFromDrop(transfer?.getData("text/uri-list") ?? "");
-    if (link) await this.loadUrl(link);
-  }
-
-  private wireUrlLoading(): void {
-    this.urlLoad.addEventListener("click", () => void this.loadUrl(this.urlInput.value));
-    this.urlInput.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter") return;
-      event.preventDefault();
-      void this.loadUrl(this.urlInput.value);
-    });
-  }
-
-  private wirePaste(): void {
-    document.addEventListener("paste", (event) => {
-      if (document.querySelector("dialog[open]")) return;
-      const image = Array.from(event.clipboardData?.files ?? []).find(isAcceptedImage);
-      if (!image) return;
-      event.preventDefault();
-      void this.loadFile(image);
-    });
   }
 
   private wireDragging(): void {
