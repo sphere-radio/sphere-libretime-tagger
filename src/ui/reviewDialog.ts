@@ -6,8 +6,8 @@ export interface ReviewModel {
   originalName: string;
   newName: string;
   tags: Mp3Tags;
-  notes: string[];
-  nextLabel: string;
+  nameWasShortened: boolean;
+  replacesOriginal: boolean;
 }
 
 const OUTCOME_MESSAGES: Record<SaveOutcome, (name: string) => string> = {
@@ -40,14 +40,14 @@ export class ReviewDialog {
     this.body.replaceChildren(h("p", { role: "status", textContent: "Saving…" }));
     try {
       const outcome = await save();
-      this.showDone(OUTCOME_MESSAGES[outcome](model.newName), model.nextLabel, onDone);
+      this.showDone(OUTCOME_MESSAGES[outcome](model.newName), onDone);
     } catch (error) {
       this.showFailure(error, model, save, onDone);
     }
   }
 
-  private showDone(message: string, nextLabel: string, onDone: () => void): void {
-    const next = h("button", { type: "button", class: "btn primary", textContent: nextLabel });
+  private showDone(message: string, onDone: () => void): void {
+    const next = h("button", { type: "button", class: "btn primary", textContent: "Tag another file" });
     const close = h("button", { type: "button", class: "btn", textContent: "Close" });
     next.addEventListener("click", () => {
       this.dialog.close();
@@ -86,6 +86,13 @@ export class ReviewDialog {
   }
 
   private renderNotes(model: ReviewModel): HTMLElement {
-    return h("ul", { class: "notes" }, ...model.notes.map((text) => h("li", { textContent: text })));
+    const notes = [
+      "All other tags in the file are removed.",
+      model.replacesOriginal
+        ? "Saving changes the original file and renames it. If a file with the new name is in the same folder, check it first."
+        : "Your browser cannot rename the original. A tagged copy is downloaded and the original stays unchanged.",
+    ];
+    if (model.nameWasShortened) notes.push("The episode title is shortened in the file name to stay within 100 characters. The Title tag keeps it in full.");
+    return h("ul", { class: "notes" }, ...notes.map((text) => h("li", { textContent: text })));
   }
 }
